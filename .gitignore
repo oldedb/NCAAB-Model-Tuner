@@ -18,6 +18,9 @@ env/
 # Data files (large CSVs cached locally)
 data/*.csv
 
+# Experiment logs (session-specific)
+logs/
+
 # OS
 .DS_Store
 Thumbs.db

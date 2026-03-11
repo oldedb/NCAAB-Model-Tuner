@@ -4,23 +4,26 @@
 
 Autonomous, self-improving college basketball score prediction system based on Karpathy's "autoresearch" pattern. An AI agent iteratively improves a prediction model that forecasts actual NCAA D1 men's basketball game scores, optimizing against a single metric (MAE).
 
+**Primary goal**: Learn and apply the Karpathy auto-research loop pattern. The loop is the skill — the basketball prediction is the test case.
+
 ## Architecture — Three Files That Matter
 
 ### `prepare.py` — Fixed Infrastructure (DO NOT MODIFY)
-- Loads historical game data from CSV files (exported from CBBData/Barttorvik)
+- Loads raw game data from ESPN (data/raw_games.csv)
+- Computes season-to-date features for each team (point-in-time, no leakage)
 - Splits data into training and validation sets
-- Runs the evaluation function and outputs the MAE score
-- Contains sanity checks: predictions must be between 40-120 points
+- Runs evaluation and outputs MAE score
+- Sanity checks: predictions clamped to 40-120 points
 - **The agent NEVER touches this file.**
 
 ### `predict.py` — Prediction Model (AGENT MODIFIES THIS ONLY)
-- The ONE file the agent is allowed to edit during the auto-research loop
-- Contains: feature engineering, model selection, hyperparameters, weighting logic, home court adjustments, tempo projections
+- The ONE file the agent edits during the auto-research loop
+- Contains: feature selection, model choice, hyperparameters, weighting, home court logic
 - Everything here is fair game: algorithm, features, math, approach
 
 ### `program.md` — Strategy Document (HUMAN WRITES THIS)
 - Plain-English guidance for the agent's research direction
-- Contains basketball domain knowledge, handicapping instincts, what to try/avoid
+- Basketball domain knowledge, handicapping instincts, what to try/avoid
 - Human iterates on this based on experiment results
 
 ## Scoring Metric
@@ -28,11 +31,11 @@ Autonomous, self-improving college basketball score prediction system based on K
 **Primary: Mean Absolute Error (MAE)** — Lower is better.
 - For each game: |Predicted Score - Actual Score| for both teams
 - MAE = average of all errors across all games and both teams
-- Example: Predict Duke 78 UNC 72, actual Duke 75 UNC 70 → errors 3 and 2 → game avg 2.5
+- Example: Predict Duke 78 UNC 72, actual Duke 75 UNC 70 → errors 3 and 2 → avg 2.5
 
-**Secondary (logged only, not used for keep/discard):**
-- Spread accuracy (predicted margin vs closing spread, target >53%)
-- Total accuracy (predicted total vs actual total)
+**Secondary (logged only, not for keep/discard):**
+- Margin MAE (predicted margin vs actual margin)
+- Total MAE (predicted total vs actual total)
 - Directional accuracy (% correct winner picks)
 
 ## The Experiment Loop
@@ -50,34 +53,42 @@ Each experiment: 2-5 minute time budget. Overnight run yields ~100-200 experimen
 
 ## Data Source
 
-**CBBData** (R package) → Barttorvik/T-Rank data. Free API key required.
+**ESPN public scoreboard API** — no API key required.
 
-### Critical Rule: Point-in-Time Ratings
-All ratings must be as they existed BEFORE each game — never end-of-season or current ratings applied retroactively. This prevents data leakage.
+### Features Available (pre-computed in prepare.py, prefixed home_/away_)
+All features are season-to-date as of game day (point-in-time, no leakage):
+- `ppg` — points per game
+- `opp_ppg` — opponent PPG (defensive quality)
+- `win_pct` — winning percentage
+- `avg_margin` — average scoring margin
+- `games_played` — games played so far this season
+- `last5_ppg` / `last5_opp_ppg` / `last5_margin` — last 5 games (recent form)
+- `home_ppg` / `away_ppg` — scoring by venue
+- `days_rest` — days since last game
 
-### Key Features
-- AdjOE, AdjDE, Barthag, AdjTempo (for both teams)
-- eFG%, TOR, TORD, ORB%, DRB%, FTR
-- Game context: date, location (home/away/neutral), conference
-- Actual scores (target variable)
+Also: `neutral_site` (bool)
 
 ### Data Pipeline
-R pulls from CBBData → exports CSV → Python consumes CSV. One-time or periodic refresh.
+ESPN scoreboard API → raw_games.csv → prepare.py computes features → predict.py uses them
+
+### Train/Validation Split
+- Training: seasons 2022-2024
+- Validation: season 2025
 
 ## Project Structure
 
 ```
 NCAAB-Model-Tuner/
 ├── CLAUDE.md                              # This file — project instructions
-├── NCAAB_AutoResearch_Scope_of_Work.md    # Full scope of work reference
+├── NCAAB_AutoResearch_Scope_of_Work.md    # Original scope of work reference
 ├── program.md                             # Strategy doc (human-written)
 ├── prepare.py                             # Fixed eval infrastructure
 ├── predict.py                             # Model code (agent-editable)
-├── data/                                  # CSV files from CBBData export
-│   └── *.csv
+├── data/
+│   └── raw_games.csv                      # ESPN game results
 ├── logs/                                  # Experiment logs
-├── scripts/                               # Loop runner, data pull scripts
-│   └── pull_data.R                        # R script for CBBData export
+├── scripts/
+│   └── pull_data.py                       # ESPN data puller
 ├── .env                                   # API keys (not committed)
 ├── .gitignore
 └── requirements.txt
@@ -85,28 +96,26 @@ NCAAB-Model-Tuner/
 
 ## Implementation Phases
 
-1. **Data Acquisition** — Set up R + CBBData, pull historical ratings (2015-present) with point-in-time snapshots, export CSVs
-2. **Baseline Model** — Build `prepare.py` and initial `predict.py`, verify end-to-end pipeline, establish baseline MAE
-3. **Strategy & Loop** — Write `program.md`, build loop runner (shell script/wrapper), configure git branching
-4. **First Autonomous Run** — Run loop for several hours, review results, iterate on `program.md`
-5. **Refinement** — Expand features, tune strategy doc, explore ensembles, rolling validation
+1. **Data Acquisition** — Pull game scores from ESPN API (seasons 2022-2026)
+2. **Baseline Model** — Verify end-to-end pipeline, establish baseline MAE
+3. **Strategy & Loop** — Write `program.md`, build loop runner script
+4. **First Autonomous Run** — Run loop, review results, iterate on `program.md`
+5. **Refinement** — Expand features, tune strategy doc, explore ensembles
 
 ## Technical Stack
 
 - **Python 3.10+** — prediction loop, ML models
-- **R 4.x** — CBBData pulls only
 - **Git** — experiment tracking (feature branch for experiments)
-- **Key Python libs:** pandas, numpy, scikit-learn, xgboost/lightgbm (optional)
-- **Key R libs:** cbbdata, dplyr, readr
+- **Key Python libs:** pandas, numpy, scikit-learn, xgboost
 
 ## Success Criteria
 
 | Level | Target |
 |-------|--------|
 | Minimum | Loop runs autonomously, MAE improves from baseline |
-| Good | MAE consistently < 8 points per team per game |
-| Excellent | MAE < 6 points, spread accuracy > 53% |
-| Stretch | Nightly runs with updated ratings, competitive with Barttorvik projections |
+| Good | MAE consistently < 9 points per team per game |
+| Excellent | MAE < 7 points, directional accuracy > 70% |
+| Stretch | Nightly runs, daily predictions competitive with public models |
 
 ## Guard Rails
 
