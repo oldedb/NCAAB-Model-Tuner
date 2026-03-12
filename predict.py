@@ -1,9 +1,10 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment: Increase RF min_samples_leaf from 10 to 15 (both total and margin).
-  More regularization on the RF component to reduce overfitting.
-  Previous MAE: 7.7768
+Experiment: Add defensive pressure features (steals, blocks) and ball movement (assists) for
+  both teams, plus differentials. These available-but-unused features capture defensive intensity
+  and offensive quality beyond shooting percentages.
+  Previous MAE: 7.7658
 """
 
 import pandas as pd
@@ -49,6 +50,10 @@ ENHANCED_FEATURES = [
     "home_avg_turnovers", "away_avg_turnovers",
     # Play style
     "home_fg3_rate", "away_fg3_rate",
+    # Defensive pressure & ball movement
+    "home_avg_steals", "away_avg_steals",
+    "home_avg_blocks", "away_avg_blocks",
+    "home_avg_assists", "away_avg_assists",
     # Power ratings
     "home_srs", "away_srs",
     "home_elo", "away_elo",
@@ -92,6 +97,31 @@ ENGINEERED = [
     "away_def_trend",
     "home_eff_trend",            # off_rating trend (last5 vs season)
     "away_eff_trend",
+    # Matchup quality (proxies for conference-level effects)
+    "srs_sum",                   # overall game caliber
+    "abs_srs_diff",              # competitiveness of matchup
+    "elo_sum",                   # overall game caliber (Elo)
+    "abs_elo_diff",              # competitiveness of matchup (Elo)
+    # SRS-adjusted win percentage (record quality * SoS)
+    "home_srs_adj_winpct",
+    "away_srs_adj_winpct",
+    "srs_adj_winpct_diff",
+    # Opponent defensive Four Factors differentials
+    "opp_efg_diff",              # defensive eFG% diff
+    "opp_to_ratio_diff",         # defensive turnover ratio diff
+    "opp_oreb_pct_diff",         # defensive oreb% diff
+    # Pace-adjusted expected scores (efficiency * pace interaction)
+    "home_exp_pts",              # home expected points from efficiency+pace
+    "away_exp_pts",              # away expected points from efficiency+pace
+    "exp_total",                 # expected game total
+    "exp_margin",                # expected margin
+    # Elo-derived features (nonlinear transforms)
+    "elo_expected_margin",       # elo_diff / 25 (theoretical expected margin)
+    "elo_win_prob",              # logistic win probability from Elo
+    # Defensive pressure & ball movement differentials
+    "steals_diff",               # defensive pressure advantage
+    "blocks_diff",               # rim protection advantage
+    "assists_diff",              # ball movement advantage
 ]
 
 MARGIN_INTERACTIONS = [
@@ -176,6 +206,39 @@ def _add_engineered(df):
     df["away_def_trend"] = df["away_opp_ppg"] - df["away_last5_opp_ppg"]
     df["home_eff_trend"] = df["home_last5_off_rating"] - df["home_avg_off_rating"]
     df["away_eff_trend"] = df["away_last5_off_rating"] - df["away_avg_off_rating"]
+
+    # Matchup quality features (conference-level proxies)
+    df["srs_sum"] = df["home_srs"] + df["away_srs"]
+    df["abs_srs_diff"] = (df["home_srs"] - df["away_srs"]).abs()
+    df["elo_sum"] = df["home_elo"] + df["away_elo"]
+    df["abs_elo_diff"] = (df["home_elo"] - df["away_elo"]).abs()
+
+    # SRS-adjusted win percentage (quality of record accounting for SoS)
+    df["home_srs_adj_winpct"] = df["home_win_pct"] * df["home_srs"]
+    df["away_srs_adj_winpct"] = df["away_win_pct"] * df["away_srs"]
+    df["srs_adj_winpct_diff"] = df["home_srs_adj_winpct"] - df["away_srs_adj_winpct"]
+
+    # Opponent defensive Four Factors differentials
+    df["opp_efg_diff"] = df["home_avg_opp_efg_pct"] - df["away_avg_opp_efg_pct"]
+    df["opp_to_ratio_diff"] = df["home_avg_opp_to_ratio"] - df["away_avg_opp_to_ratio"]
+    df["opp_oreb_pct_diff"] = df["home_avg_opp_oreb_pct"] - df["away_avg_opp_oreb_pct"]
+
+    # Pace-adjusted expected scores
+    # Expected points ≈ (off_rating/100) * (opp_def_rating/100) * pace
+    game_pace = (df["home_avg_pace"] + df["away_avg_pace"]) / 2
+    df["home_exp_pts"] = (df["home_avg_off_rating"] / 100) * (df["away_avg_def_rating"] / 100) * game_pace
+    df["away_exp_pts"] = (df["away_avg_off_rating"] / 100) * (df["home_avg_def_rating"] / 100) * game_pace
+    df["exp_total"] = df["home_exp_pts"] + df["away_exp_pts"]
+    df["exp_margin"] = df["home_exp_pts"] - df["away_exp_pts"]
+
+    # Elo-derived features (nonlinear transformations)
+    df["elo_expected_margin"] = (df["home_elo"] - df["away_elo"]) / 25.0
+    df["elo_win_prob"] = 1.0 / (1.0 + 10.0 ** (-(df["home_elo"] - df["away_elo"]) / 400.0))
+
+    # Defensive pressure & ball movement differentials
+    df["steals_diff"] = df["home_avg_steals"] - df["away_avg_steals"]
+    df["blocks_diff"] = df["home_avg_blocks"] - df["away_avg_blocks"]
+    df["assists_diff"] = df["home_avg_assists"] - df["away_avg_assists"]
 
     # Margin-specific interaction features
     df["srs_x_winpct"] = df["srs_diff"] * df["win_pct_diff"]

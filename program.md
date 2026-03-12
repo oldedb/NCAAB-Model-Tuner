@@ -107,36 +107,33 @@ Also: `neutral_site` (bool), `home_id`, `away_id`
 - Consider blending team stats with league averages based on games_played
 - SRS and Elo can help anchor early-season predictions
 
-## Current Focus: Hyperparameter Sweep
+## Current Focus: Conference / Strength of Schedule Adjustment
 
-The 3-model ensemble (XGBoost + Ridge + Random Forest) is at MAE 7.7768. Fine-tuning hyperparameters one at a time may squeeze out more gains without architectural risk.
+The model is at MAE 7.7764. SRS already adjusts for strength of schedule, but explicit conference-level features could help the model understand that a 20-5 team from the Big 12 is very different from a 20-5 team from a mid-major. Conference play also tends to be lower-scoring and more competitive than non-conference.
 
 **What we know:**
-- Current ensemble: 60% XGB + 20% Ridge + 20% RF (total), 45% XGB + 35% Ridge + 20% RF (margin)
-- XGBoost total: n_estimators=200, max_depth=4, lr=0.06, reg_lambda=10.0
-- XGBoost margin: n_estimators=400, max_depth=4, lr=0.04, reg_lambda=12.0
-- Ridge alpha=50.0 for both
-- RF: n_estimators=300, max_depth=8, min_samples_leaf=10, max_features=0.5
-- All 95+ features contribute (pruning was tested and failed)
+- SRS_diff is already the #1 feature (11.2% importance) and encodes SoS implicitly
+- But the model has no explicit conference-level information
+- Conference games behave differently than non-conference (tighter, lower-scoring)
+- Teams from strong conferences have inflated loss counts but are actually better
+- home_id and away_id are available but not currently used as features
 
-**Priority experiments (change ONE thing at a time):**
-- Try XGBoost max_depth: 3 vs 4 vs 5 (for total and/or margin separately)
-- Try XGBoost learning_rate: 0.03, 0.05, 0.08, 0.10
-- Try XGBoost n_estimators: 150, 250, 300, 500 (total), 300, 500, 600 (margin)
-- Try XGBoost reg_lambda: 5, 8, 15, 20
-- Try XGBoost subsample: 0.7, 0.85, 0.9
-- Try XGBoost colsample_bytree: 0.5, 0.6, 0.8
-- Try Ridge alpha: 20, 30, 75, 100
-- Try RF max_depth: 6, 10, 12, None
-- Try RF n_estimators: 200, 400, 500
-- Try RF min_samples_leaf: 5, 15, 20
-- Try ensemble weight variations: adjust XGB/Ridge/RF split by 5-10%
+**Priority experiments (try these first):**
+- Try computing average SRS by conference (from training data), then add home_conf_avg_srs and away_conf_avg_srs as features
+- Try adding "SRS above conference average" features: home_srs - home_conf_avg_srs
+- Try adding conference strength tier features (top 7 conferences vs mid-majors vs low-majors)
+- Try computing average Elo by conference and adding conference Elo gap features
+- Try adding a conference_game flag (are both teams from the same conference?)
+- Try adding opponent strength features: average SRS of opponents played so far
+- Try adding win_pct adjusted for SoS: win_pct * (team_srs / league_avg_srs)
+- Try adding conference-adjusted scoring: ppg relative to conference average ppg
 
 **Rules for this run:**
-- Change only ONE hyperparameter per experiment
-- Do NOT change the model architecture (keep 3-model ensemble)
-- Do NOT change the feature list or engineered features
-- Do NOT add or remove models
+- Keep the 3-model ensemble architecture
+- You may add new conference/SoS engineered features in _add_engineered()
+- You may compute conference averages from the training data within predict()
+- You may add new feature names to ALL_FEATURES, MARGIN_FEATURES, or create new lists
+- Do NOT use home_id or away_id directly as model features (leakage risk)
 - Keep the predict() function signature the same
 
 ## Things to Avoid
