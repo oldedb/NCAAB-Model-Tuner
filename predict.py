@@ -1,12 +1,10 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment 21: Add form trend features (last5 - season avg) for offense and defense.
-  Captures whether a team is trending up or down relative to their season baseline.
-  home_off_trend = last5_ppg - ppg (positive = scoring more lately)
-  home_def_trend = opp_ppg - last5_opp_ppg (positive = defending better lately)
-  Also combined trend_diff features for matchup context.
-  Previous best MAE: 8.4407
+Enhanced v1: Updated to use box score features from CBBData API.
+  Added efficiency ratings, four factors, shooting splits, pace,
+  rebounding, turnovers, SRS, and Elo power ratings.
+  Baseline (old features only): 8.2533 MAE
 """
 
 import pandas as pd
@@ -16,7 +14,8 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
 
-BASE_FEATURES = [
+# Original basic features (always available)
+BASIC_FEATURES = [
     "home_ppg", "home_opp_ppg", "home_avg_margin", "home_win_pct",
     "home_last5_ppg", "home_last5_opp_ppg", "home_last5_margin",
     "home_home_ppg", "home_days_rest", "home_games_played",
@@ -26,31 +25,76 @@ BASE_FEATURES = [
     "neutral_site",
 ]
 
-ENGINEERED = [
-    "home_off_vs_def",       # home offense vs away defense (raw)
-    "away_off_vs_def",       # away offense vs home defense (raw)
-    "margin_diff",           # difference in avg margins
-    "recent_margin_diff",    # difference in recent form margins
-    "home_reg_ppg",          # regression-adjusted PPG (home)
-    "away_reg_ppg",          # regression-adjusted PPG (away)
-    "home_reg_opp_ppg",      # regression-adjusted opp PPG (home)
-    "away_reg_opp_ppg",      # regression-adjusted opp PPG (away)
-    "reg_home_off_vs_def",   # regressed home offense vs regressed away defense
-    "reg_away_off_vs_def",   # regressed away offense vs regressed home defense
-    "rest_diff",             # home rest advantage
-    "home_implied_pace",     # home team implied pace (ppg + opp_ppg)
-    "away_implied_pace",     # away team implied pace
-    "pace_diff",             # difference in implied pace
-    "win_pct_diff",          # home win_pct - away win_pct
-    "home_off_trend",        # home offensive momentum (last5_ppg - ppg)
-    "away_off_trend",        # away offensive momentum
-    "home_def_trend",        # home defensive momentum (opp_ppg - last5_opp_ppg)
-    "away_def_trend",        # away defensive momentum
-    "off_trend_diff",        # home off trend - away off trend
-    "def_trend_diff",        # home def trend - away def trend
+# Enhanced box score features (from CBBData)
+ENHANCED_FEATURES = [
+    # Efficiency ratings (pace-adjusted)
+    "home_avg_off_rating", "home_avg_def_rating",
+    "away_avg_off_rating", "away_avg_def_rating",
+    # Four Factors (Dean Oliver's keys to winning)
+    "home_avg_efg_pct", "home_avg_to_ratio", "home_avg_oreb_pct", "home_avg_ft_rate",
+    "away_avg_efg_pct", "away_avg_to_ratio", "away_avg_oreb_pct", "away_avg_ft_rate",
+    # Opponent Four Factors (defensive versions)
+    "home_avg_opp_efg_pct", "home_avg_opp_to_ratio", "home_avg_opp_oreb_pct", "home_avg_opp_ft_rate",
+    "away_avg_opp_efg_pct", "away_avg_opp_to_ratio", "away_avg_opp_oreb_pct", "away_avg_opp_ft_rate",
+    # Shooting splits (cumulative, more stable than averaged percentages)
+    "home_cum_fg_pct", "home_cum_fg3_pct", "home_cum_ft_pct",
+    "away_cum_fg_pct", "away_cum_fg3_pct", "away_cum_ft_pct",
+    # Pace and possessions
+    "home_avg_pace", "away_avg_pace",
+    # Rebounding
+    "home_avg_treb", "home_avg_oreb",
+    "away_avg_treb", "away_avg_oreb",
+    # Ball control
+    "home_ast_to_ratio", "away_ast_to_ratio",
+    "home_avg_turnovers", "away_avg_turnovers",
+    # Play style
+    "home_fg3_rate", "away_fg3_rate",
+    # Power ratings
+    "home_srs", "away_srs",
+    "home_elo", "away_elo",
+    # Recent form (last 5 games) for key enhanced stats
+    "home_last5_off_rating", "home_last5_def_rating",
+    "away_last5_off_rating", "away_last5_def_rating",
+    "home_last5_efg_pct", "away_last5_efg_pct",
+    "home_last5_pace", "away_last5_pace",
 ]
 
-ALL_FEATURES = BASE_FEATURES + ENGINEERED
+# Engineered matchup features
+ENGINEERED = [
+    # Efficiency matchups
+    "off_rating_diff",           # home off rating - away off rating
+    "def_rating_diff",           # home def rating - away def rating (lower = better D)
+    "home_eff_vs_def",           # home off rating vs away def rating
+    "away_eff_vs_def",           # away off rating vs home def rating
+    # Four Factors differentials
+    "efg_diff",                  # home eFG% - away eFG%
+    "to_ratio_diff",             # turnover ratio diff (lower = better)
+    "oreb_pct_diff",             # offensive rebound % diff
+    # Shooting matchup
+    "fg3_pct_diff",              # 3-point shooting diff
+    # Power rating differentials
+    "srs_diff",                  # home SRS - away SRS
+    "elo_diff",                  # home Elo - away Elo
+    # Pace matchup
+    "pace_avg",                  # expected game pace
+    "pace_diff",                 # pace style mismatch
+    # Original engineered features
+    "home_off_vs_def",           # raw ppg matchup
+    "away_off_vs_def",
+    "margin_diff",
+    "recent_margin_diff",
+    "rest_diff",
+    "win_pct_diff",
+    # Trends
+    "home_off_trend",
+    "away_off_trend",
+    "home_def_trend",
+    "away_def_trend",
+    "home_eff_trend",            # off_rating trend (last5 vs season)
+    "away_eff_trend",
+]
+
+ALL_FEATURES = BASIC_FEATURES + ENHANCED_FEATURES + ENGINEERED
 
 
 def _regress_to_mean(stat, games_played, league_avg, k=10):
@@ -59,40 +103,48 @@ def _regress_to_mean(stat, games_played, league_avg, k=10):
     return weight * stat + (1 - weight) * league_avg
 
 
-def _add_engineered(df, league_ppg=71.0, league_opp_ppg=71.0):
-    """Add matchup-based and regression-adjusted engineered features."""
+def _add_engineered(df):
+    """Add matchup-based engineered features."""
     df = df.copy()
-    # How much home team scores vs how much away team allows
+
+    # Efficiency matchups
+    df["off_rating_diff"] = df["home_avg_off_rating"] - df["away_avg_off_rating"]
+    df["def_rating_diff"] = df["home_avg_def_rating"] - df["away_avg_def_rating"]
+    df["home_eff_vs_def"] = df["home_avg_off_rating"] - df["away_avg_def_rating"]
+    df["away_eff_vs_def"] = df["away_avg_off_rating"] - df["home_avg_def_rating"]
+
+    # Four Factors differentials
+    df["efg_diff"] = df["home_avg_efg_pct"] - df["away_avg_efg_pct"]
+    df["to_ratio_diff"] = df["home_avg_to_ratio"] - df["away_avg_to_ratio"]
+    df["oreb_pct_diff"] = df["home_avg_oreb_pct"] - df["away_avg_oreb_pct"]
+
+    # Shooting
+    df["fg3_pct_diff"] = df["home_cum_fg3_pct"] - df["away_cum_fg3_pct"]
+
+    # Power ratings
+    df["srs_diff"] = df["home_srs"] - df["away_srs"]
+    df["elo_diff"] = df["home_elo"] - df["away_elo"]
+
+    # Pace
+    df["pace_avg"] = (df["home_avg_pace"] + df["away_avg_pace"]) / 2
+    df["pace_diff"] = df["home_avg_pace"] - df["away_avg_pace"]
+
+    # Original raw matchups
     df["home_off_vs_def"] = df["home_ppg"] - df["away_opp_ppg"]
-    # How much away team scores vs how much home team allows
     df["away_off_vs_def"] = df["away_ppg"] - df["home_opp_ppg"]
-    # Margin differential
     df["margin_diff"] = df["home_avg_margin"] - df["away_avg_margin"]
-    # Recent form margin differential
     df["recent_margin_diff"] = df["home_last5_margin"] - df["away_last5_margin"]
-    # Sample-size-regressed stats
-    df["home_reg_ppg"] = _regress_to_mean(df["home_ppg"], df["home_games_played"], league_ppg)
-    df["away_reg_ppg"] = _regress_to_mean(df["away_ppg"], df["away_games_played"], league_ppg)
-    df["home_reg_opp_ppg"] = _regress_to_mean(df["home_opp_ppg"], df["home_games_played"], league_opp_ppg)
-    df["away_reg_opp_ppg"] = _regress_to_mean(df["away_opp_ppg"], df["away_games_played"], league_opp_ppg)
-    # Matchup differentials using regressed stats (more reliable with small samples)
-    df["reg_home_off_vs_def"] = df["home_reg_ppg"] - df["away_reg_opp_ppg"]
-    df["reg_away_off_vs_def"] = df["away_reg_ppg"] - df["home_reg_opp_ppg"]
-    # Rest differential
     df["rest_diff"] = df["home_days_rest"] - df["away_days_rest"]
-    # Implied pace (ppg + opp_ppg = total points in team's games)
-    df["home_implied_pace"] = df["home_ppg"] + df["home_opp_ppg"]
-    df["away_implied_pace"] = df["away_ppg"] + df["away_opp_ppg"]
-    df["pace_diff"] = df["home_implied_pace"] - df["away_implied_pace"]
-    # Win percentage differential (quality matchup)
     df["win_pct_diff"] = df["home_win_pct"] - df["away_win_pct"]
-    # Form trends: last 5 games vs season average (momentum signal)
+
+    # Trends
     df["home_off_trend"] = df["home_last5_ppg"] - df["home_ppg"]
     df["away_off_trend"] = df["away_last5_ppg"] - df["away_ppg"]
-    df["home_def_trend"] = df["home_opp_ppg"] - df["home_last5_opp_ppg"]  # positive = better defense lately
+    df["home_def_trend"] = df["home_opp_ppg"] - df["home_last5_opp_ppg"]
     df["away_def_trend"] = df["away_opp_ppg"] - df["away_last5_opp_ppg"]
-    df["off_trend_diff"] = df["home_off_trend"] - df["away_off_trend"]
-    df["def_trend_diff"] = df["home_def_trend"] - df["away_def_trend"]
+    df["home_eff_trend"] = df["home_last5_off_rating"] - df["home_avg_off_rating"]
+    df["away_eff_trend"] = df["away_last5_off_rating"] - df["away_avg_off_rating"]
+
     return df
 
 
@@ -108,35 +160,37 @@ def predict(train_df, val_df):
         DataFrame with columns: pred_home_score, pred_away_score
         Must have the same index as val_df.
     """
-    # Compute league averages from training data for regression
-    league_ppg = train_df[["home_ppg", "away_ppg"]].mean().mean()
-    league_opp_ppg = train_df[["home_opp_ppg", "away_opp_ppg"]].mean().mean()
-
-    train = _add_engineered(train_df, league_ppg, league_opp_ppg)
-    val = _add_engineered(val_df, league_ppg, league_opp_ppg)
+    train = _add_engineered(train_df)
+    val = _add_engineered(val_df)
 
     # Compute targets: total and margin
     train["total"] = train["home_score"] + train["away_score"]
     train["margin"] = train["home_score"] - train["away_score"]
 
-    # Drop rows with missing features or targets
-    train = train.dropna(subset=ALL_FEATURES + ["total", "margin"])
+    # Filter to features that exist in the data
+    available = [f for f in ALL_FEATURES if f in train.columns]
 
-    X_train = train[ALL_FEATURES].astype(float)
-    X_val = val[ALL_FEATURES].astype(float).fillna(X_train.median())
+    # Drop rows with missing targets
+    train = train.dropna(subset=["total", "margin"])
+
+    X_train = train[available].astype(float)
+    X_val = val[available].astype(float).fillna(X_train.median())
+
+    # Fill remaining NaN in training data
+    X_train = X_train.fillna(X_train.median())
 
     # --- XGBoost predictions ---
     xgb_total = XGBRegressor(
-        n_estimators=150, max_depth=3, learning_rate=0.08,
-        subsample=0.8, colsample_bytree=0.8, reg_alpha=1.0, reg_lambda=10.0,
+        n_estimators=200, max_depth=4, learning_rate=0.06,
+        subsample=0.8, colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=10.0,
         random_state=42, verbosity=0,
     )
     xgb_total.fit(X_train, train["total"])
     xgb_pred_total = xgb_total.predict(X_val)
 
     xgb_margin = XGBRegressor(
-        n_estimators=150, max_depth=3, learning_rate=0.08,
-        subsample=0.8, colsample_bytree=0.8, reg_alpha=1.0, reg_lambda=10.0,
+        n_estimators=200, max_depth=4, learning_rate=0.06,
+        subsample=0.8, colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=10.0,
         random_state=42, verbosity=0,
     )
     xgb_margin.fit(X_train, train["margin"])
