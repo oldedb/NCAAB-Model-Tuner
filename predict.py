@@ -1,10 +1,10 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Enhanced v1: Updated to use box score features from CBBData API.
-  Added efficiency ratings, four factors, shooting splits, pace,
-  rebounding, turnovers, SRS, and Elo power ratings.
-  Baseline (old features only): 8.2533 MAE
+Experiment: Lower Ridge alpha from 100.0 to 50.0. Less regularization gives
+  Ridge more flexibility to capture patterns, especially for margin prediction
+  where Ridge has 45% weight in the ensemble.
+  Previous MAE: 7.7819
 """
 
 import pandas as pd
@@ -103,6 +103,31 @@ def _regress_to_mean(stat, games_played, league_avg, k=10):
     return weight * stat + (1 - weight) * league_avg
 
 
+def _apply_regression(df):
+    """Apply regression to mean for key stats based on games_played."""
+    # League averages (approximate D1 averages)
+    LEAGUE_AVGS = {
+        "ppg": 71.5, "opp_ppg": 71.5, "avg_margin": 0.0,
+        "avg_off_rating": 100.0, "avg_def_rating": 100.0,
+        "avg_efg_pct": 0.49, "avg_to_ratio": 0.18,
+        "avg_pace": 67.5, "srs": 0.0,
+    }
+    for prefix in ["home_", "away_"]:
+        gp_col = f"{prefix}games_played"
+        if gp_col not in df.columns:
+            continue
+        for stat, avg in LEAGUE_AVGS.items():
+            col = f"{prefix}{stat}"
+            if col in df.columns:
+                df[col] = df.apply(
+                    lambda row: _regress_to_mean(row[col], row[gp_col], avg, k=8)
+                    if pd.notna(row[col]) and pd.notna(row[gp_col])
+                    else row[col],
+                    axis=1,
+                )
+    return df
+
+
 def _add_engineered(df):
     """Add matchup-based engineered features."""
     df = df.copy()
@@ -160,8 +185,11 @@ def predict(train_df, val_df):
         DataFrame with columns: pred_home_score, pred_away_score
         Must have the same index as val_df.
     """
-    train = _add_engineered(train_df)
-    val = _add_engineered(val_df)
+    train = _apply_regression(train_df.copy())
+    val = _apply_regression(val_df.copy())
+
+    train = _add_engineered(train)
+    val = _add_engineered(val)
 
     # Compute targets: total and margin
     train["total"] = train["home_score"] + train["away_score"]
@@ -201,17 +229,19 @@ def predict(train_df, val_df):
     X_train_scaled = scaler.fit_transform(X_train)
     X_val_scaled = scaler.transform(X_val)
 
-    ridge_total = Ridge(alpha=100.0)
+    ridge_total = Ridge(alpha=50.0)
     ridge_total.fit(X_train_scaled, train["total"])
     ridge_pred_total = ridge_total.predict(X_val_scaled)
 
-    ridge_margin = Ridge(alpha=100.0)
+    ridge_margin = Ridge(alpha=50.0)
     ridge_margin.fit(X_train_scaled, train["margin"])
     ridge_pred_margin = ridge_margin.predict(X_val_scaled)
 
-    # --- Ensemble: 70% XGBoost + 30% Ridge ---
-    pred_total = 0.7 * xgb_pred_total + 0.3 * ridge_pred_total
-    pred_margin = 0.7 * xgb_pred_margin + 0.3 * ridge_pred_margin
+    # --- Ensemble: per-target weights ---
+    # Total: XGBoost captures nonlinear pace effects better
+    # Margin: Ridge regularization helps with noisier target
+    pred_total = 0.75 * xgb_pred_total + 0.25 * ridge_pred_total
+    pred_margin = 0.55 * xgb_pred_margin + 0.45 * ridge_pred_margin
 
     # Derive individual scores from total and margin
     val["pred_home_score"] = (pred_total + pred_margin) / 2.0
