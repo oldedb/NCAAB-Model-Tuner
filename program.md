@@ -107,38 +107,31 @@ Also: `neutral_site` (bool), `home_id`, `away_id`
 - Consider blending team stats with league averages based on games_played
 - SRS and Elo can help anchor early-season predictions
 
-## Approaches to Try
+## Current Focus: Improve Margin Prediction
 
-### Feature Engineering
-- Efficiency differential: home_off_rating - away_def_rating (and vice versa)
-- Four factors matchup differentials
-- SRS and Elo differentials as power indicators
-- Pace average as expected game tempo (affects total)
-- Pace mismatch as a feature (style clash)
-- Shooting style matchup (3-point reliant team vs good perimeter defense)
-- Rebound differential as predictor of second-chance points
-- Turnover matchup: team with high steals vs team with high turnovers
-- Rest differential with enhanced context
+The score MAE is 7.78 but margin MAE is 8.33 — margin prediction is the weakest link. Improving who wins and by how much will pull the overall MAE down.
 
-### Model Types (in order of priority)
-1. **XGBoost** — gradient boosting, often best for tabular data
-2. **Ridge/Lasso regression** — handles correlated features well
-3. **Random Forest** — captures non-linear patterns
-4. **LightGBM** — faster alternative to XGBoost
-5. **Ensemble** — combine multiple models (current approach: 70% XGBoost + 30% Ridge)
-6. **Stacking** — use predictions from base models as features for a meta-model
+**What we know:**
+- The margin model uses 55% XGBoost / 45% Ridge (more Ridge than total model)
+- SRS_diff is the #1 margin feature (11.2%), followed by margin_diff (8.8%) and elo_diff (6.9%)
+- Feature pruning was tried and failed (0/25 kept) — all 95 features contribute
+- The total model (75% XGBoost / 25% Ridge) is already performing well
 
-### Prediction Structure
-- **Decomposed approach** (current): Predict total and margin, then derive scores
-- **Direct approach**: Predict home_score and away_score independently
-- **Relative approach**: Predict margin, then use team averages for total
-- Test which gives lower MAE
+**Priority experiments (try these first):**
+- Try separate feature lists for total vs margin prediction — margin may need different features than total
+- Try a 3-model ensemble: add Random Forest or LightGBM as a third model, especially for margin
+- Try different XGBoost hyperparameters for the margin model specifically (separate from total)
+- Try higher n_estimators (300-500) for the margin XGBoost — margin is noisier and may benefit from more trees
+- Try a stacking approach: use XGBoost and Ridge margin predictions as features for a simple meta-learner
+- Try predicting margin in a different way: instead of raw margin, predict win probability then scale to margin
+- Try adding interaction features specifically for margin: srs_diff * win_pct_diff, elo_diff * margin_diff
 
-### Hyperparameter Tuning
-- XGBoost: n_estimators, max_depth, learning_rate, subsample, colsample_bytree, regularization
-- Ridge: alpha parameter
-- Ensemble weights: currently 70/30 XGBoost/Ridge — try different splits
-- Consider per-target weights (different blend for total vs margin)
+**Rules for this run:**
+- Keep all 95 features (pruning was already tested and failed)
+- The total prediction model can stay as-is — focus changes on the margin side
+- You may add a third model to the ensemble
+- You may use different hyperparameters for margin vs total
+- Keep the predict() function signature the same
 
 ## Things to Avoid
 

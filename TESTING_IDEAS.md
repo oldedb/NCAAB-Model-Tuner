@@ -1,5 +1,15 @@
 # Testing Ideas for program.md
 
+## Revert here for original program.md file
+
+```bash
+git checkout a04466d -- program.md
+```
+
+This restores `program.md` to the version before any testing strategy was applied (MAE: 7.78, 95 features, generic guidance).
+
+---
+
 Copy any of these blocks into `program.md` under "Approaches to Try" to steer the next tuning run. Be specific — the more focused the guidance, the fewer wasted experiments.
 
 ---

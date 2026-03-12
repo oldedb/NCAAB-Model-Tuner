@@ -1,10 +1,11 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment: Lower Ridge alpha from 100.0 to 50.0. Less regularization gives
-  Ridge more flexibility to capture patterns, especially for margin prediction
-  where Ridge has 45% weight in the ensemble.
-  Previous MAE: 7.7819
+Experiment: Add margin-specific interaction features (srs_diff*win_pct_diff,
+  elo_diff*margin_diff, srs_diff*elo_diff) and use them only in the margin models.
+  These cross-terms should help capture nonlinear relationships in margin prediction
+  where the combination of power rating gap and quality gap matters more than either alone.
+  Previous MAE: 7.7793
 """
 
 import pandas as pd
@@ -94,7 +95,14 @@ ENGINEERED = [
     "away_eff_trend",
 ]
 
+MARGIN_INTERACTIONS = [
+    "srs_x_winpct",
+    "elo_x_margin",
+    "srs_x_elo",
+]
+
 ALL_FEATURES = BASIC_FEATURES + ENHANCED_FEATURES + ENGINEERED
+MARGIN_FEATURES = ALL_FEATURES + MARGIN_INTERACTIONS
 
 
 def _regress_to_mean(stat, games_played, league_avg, k=10):
@@ -170,6 +178,11 @@ def _add_engineered(df):
     df["home_eff_trend"] = df["home_last5_off_rating"] - df["home_avg_off_rating"]
     df["away_eff_trend"] = df["away_last5_off_rating"] - df["away_avg_off_rating"]
 
+    # Margin-specific interaction features
+    df["srs_x_winpct"] = df["srs_diff"] * df["win_pct_diff"]
+    df["elo_x_margin"] = df["elo_diff"] * df["margin_diff"]
+    df["srs_x_elo"] = df["srs_diff"] * df["elo_diff"]
+
     return df
 
 
@@ -196,16 +209,19 @@ def predict(train_df, val_df):
     train["margin"] = train["home_score"] - train["away_score"]
 
     # Filter to features that exist in the data
-    available = [f for f in ALL_FEATURES if f in train.columns]
+    available_total = [f for f in ALL_FEATURES if f in train.columns]
+    available_margin = [f for f in MARGIN_FEATURES if f in train.columns]
 
     # Drop rows with missing targets
     train = train.dropna(subset=["total", "margin"])
 
-    X_train = train[available].astype(float)
-    X_val = val[available].astype(float).fillna(X_train.median())
+    X_train_total = train[available_total].astype(float)
+    X_val_total = val[available_total].astype(float).fillna(X_train_total.median())
+    X_train_total = X_train_total.fillna(X_train_total.median())
 
-    # Fill remaining NaN in training data
-    X_train = X_train.fillna(X_train.median())
+    X_train_margin = train[available_margin].astype(float)
+    X_val_margin = val[available_margin].astype(float).fillna(X_train_margin.median())
+    X_train_margin = X_train_margin.fillna(X_train_margin.median())
 
     # --- XGBoost predictions ---
     xgb_total = XGBRegressor(
@@ -213,29 +229,33 @@ def predict(train_df, val_df):
         subsample=0.8, colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=10.0,
         random_state=42, verbosity=0,
     )
-    xgb_total.fit(X_train, train["total"])
-    xgb_pred_total = xgb_total.predict(X_val)
+    xgb_total.fit(X_train_total, train["total"])
+    xgb_pred_total = xgb_total.predict(X_val_total)
 
     xgb_margin = XGBRegressor(
-        n_estimators=200, max_depth=4, learning_rate=0.06,
-        subsample=0.8, colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=10.0,
+        n_estimators=400, max_depth=4, learning_rate=0.04,
+        subsample=0.8, colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=12.0,
         random_state=42, verbosity=0,
     )
-    xgb_margin.fit(X_train, train["margin"])
-    xgb_pred_margin = xgb_margin.predict(X_val)
+    xgb_margin.fit(X_train_margin, train["margin"])
+    xgb_pred_margin = xgb_margin.predict(X_val_margin)
 
     # --- Ridge regression predictions ---
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
+    scaler_total = StandardScaler()
+    X_train_total_sc = scaler_total.fit_transform(X_train_total)
+    X_val_total_sc = scaler_total.transform(X_val_total)
+
+    scaler_margin = StandardScaler()
+    X_train_margin_sc = scaler_margin.fit_transform(X_train_margin)
+    X_val_margin_sc = scaler_margin.transform(X_val_margin)
 
     ridge_total = Ridge(alpha=50.0)
-    ridge_total.fit(X_train_scaled, train["total"])
-    ridge_pred_total = ridge_total.predict(X_val_scaled)
+    ridge_total.fit(X_train_total_sc, train["total"])
+    ridge_pred_total = ridge_total.predict(X_val_total_sc)
 
     ridge_margin = Ridge(alpha=50.0)
-    ridge_margin.fit(X_train_scaled, train["margin"])
-    ridge_pred_margin = ridge_margin.predict(X_val_scaled)
+    ridge_margin.fit(X_train_margin_sc, train["margin"])
+    ridge_pred_margin = ridge_margin.predict(X_val_margin_sc)
 
     # --- Ensemble: per-target weights ---
     # Total: XGBoost captures nonlinear pace effects better
