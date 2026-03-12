@@ -1,11 +1,9 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment: Add Random Forest as a third ensemble model for both total and margin.
-  RF uses bagging (variance reduction) vs XGBoost's boosting and Ridge's linear fit.
-  Ensemble weights: Total = 60% XGB + 20% Ridge + 20% RF
-                    Margin = 45% XGB + 35% Ridge + 20% RF
-  Previous MAE: 7.7787
+Experiment: Increase RF min_samples_leaf from 10 to 15 (both total and margin).
+  More regularization on the RF component to reduce overfitting.
+  Previous MAE: 7.7768
 """
 
 import pandas as pd
@@ -260,14 +258,14 @@ def predict(train_df, val_df):
 
     # --- Random Forest predictions ---
     rf_total = RandomForestRegressor(
-        n_estimators=300, max_depth=8, min_samples_leaf=10,
+        n_estimators=300, max_depth=8, min_samples_leaf=15,
         max_features=0.5, random_state=42, n_jobs=-1,
     )
     rf_total.fit(X_train_total, train["total"])
     rf_pred_total = rf_total.predict(X_val_total)
 
     rf_margin = RandomForestRegressor(
-        n_estimators=300, max_depth=8, min_samples_leaf=10,
+        n_estimators=300, max_depth=8, min_samples_leaf=15,
         max_features=0.5, random_state=42, n_jobs=-1,
     )
     rf_margin.fit(X_train_margin, train["margin"])

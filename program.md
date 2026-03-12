@@ -107,33 +107,37 @@ Also: `neutral_site` (bool), `home_id`, `away_id`
 - Consider blending team stats with league averages based on games_played
 - SRS and Elo can help anchor early-season predictions
 
-## Current Focus: Try Different Models
+## Current Focus: Hyperparameter Sweep
 
-XGBoost + Ridge is plateauing at MAE 7.7787. The current 2-model ensemble may be leaving performance on the table. A third model with different learning biases could capture patterns that XGBoost and Ridge both miss.
+The 3-model ensemble (XGBoost + Ridge + Random Forest) is at MAE 7.7768. Fine-tuning hyperparameters one at a time may squeeze out more gains without architectural risk.
 
 **What we know:**
-- Current ensemble: XGBoost (75/55%) + Ridge (25/45%) for total/margin
-- Feature pruning failed (0/25 kept) — all 95 features contribute
-- Margin-focused tuning improved MAE from 7.7811 to 7.7787
-- Margin prediction (MAE ~8.33) is still weaker than total prediction (~7.78)
+- Current ensemble: 60% XGB + 20% Ridge + 20% RF (total), 45% XGB + 35% Ridge + 20% RF (margin)
+- XGBoost total: n_estimators=200, max_depth=4, lr=0.06, reg_lambda=10.0
+- XGBoost margin: n_estimators=400, max_depth=4, lr=0.04, reg_lambda=12.0
+- Ridge alpha=50.0 for both
+- RF: n_estimators=300, max_depth=8, min_samples_leaf=10, max_features=0.5
+- All 95+ features contribute (pruning was tested and failed)
 
-**Priority experiments (try these first):**
-- Try adding Random Forest as a third model in the ensemble for both total and margin
-- Try adding LightGBM as a third model (faster, different regularization than XGBoost)
-- Try replacing XGBoost with LightGBM entirely — it may generalize better on this dataset
-- Try a 3-model ensemble with learned weights: XGBoost + Ridge + Random Forest
-- Try different ensemble weights for 3 models (e.g., 50% XGB + 25% Ridge + 25% RF)
-- Try using Random Forest only for margin prediction where noise is higher
-- Try ExtraTrees (extremely randomized trees) — more variance reduction than standard RF
+**Priority experiments (change ONE thing at a time):**
+- Try XGBoost max_depth: 3 vs 4 vs 5 (for total and/or margin separately)
+- Try XGBoost learning_rate: 0.03, 0.05, 0.08, 0.10
+- Try XGBoost n_estimators: 150, 250, 300, 500 (total), 300, 500, 600 (margin)
+- Try XGBoost reg_lambda: 5, 8, 15, 20
+- Try XGBoost subsample: 0.7, 0.85, 0.9
+- Try XGBoost colsample_bytree: 0.5, 0.6, 0.8
+- Try Ridge alpha: 20, 30, 75, 100
+- Try RF max_depth: 6, 10, 12, None
+- Try RF n_estimators: 200, 400, 500
+- Try RF min_samples_leaf: 5, 15, 20
+- Try ensemble weight variations: adjust XGB/Ridge/RF split by 5-10%
 
 **Rules for this run:**
-- Keep all 95+ features (pruning was already tested and failed)
+- Change only ONE hyperparameter per experiment
+- Do NOT change the model architecture (keep 3-model ensemble)
 - Do NOT change the feature list or engineered features
-- You may add new model types (Random Forest, LightGBM, ExtraTrees, etc.)
-- You may change ensemble weights to accommodate a third model
-- You may try replacing XGBoost with LightGBM
+- Do NOT add or remove models
 - Keep the predict() function signature the same
-- Import any needed sklearn or lightgbm modules
 
 ## Things to Avoid
 
