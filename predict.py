@@ -1,17 +1,18 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment: Add margin-specific interaction features (srs_diff*win_pct_diff,
-  elo_diff*margin_diff, srs_diff*elo_diff) and use them only in the margin models.
-  These cross-terms should help capture nonlinear relationships in margin prediction
-  where the combination of power rating gap and quality gap matters more than either alone.
-  Previous MAE: 7.7793
+Experiment: Add Random Forest as a third ensemble model for both total and margin.
+  RF uses bagging (variance reduction) vs XGBoost's boosting and Ridge's linear fit.
+  Ensemble weights: Total = 60% XGB + 20% Ridge + 20% RF
+                    Margin = 45% XGB + 35% Ridge + 20% RF
+  Previous MAE: 7.7787
 """
 
 import pandas as pd
 import numpy as np
 from xgboost import XGBRegressor
 from sklearn.linear_model import Ridge
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 
 
@@ -257,11 +258,26 @@ def predict(train_df, val_df):
     ridge_margin.fit(X_train_margin_sc, train["margin"])
     ridge_pred_margin = ridge_margin.predict(X_val_margin_sc)
 
-    # --- Ensemble: per-target weights ---
-    # Total: XGBoost captures nonlinear pace effects better
-    # Margin: Ridge regularization helps with noisier target
-    pred_total = 0.75 * xgb_pred_total + 0.25 * ridge_pred_total
-    pred_margin = 0.55 * xgb_pred_margin + 0.45 * ridge_pred_margin
+    # --- Random Forest predictions ---
+    rf_total = RandomForestRegressor(
+        n_estimators=300, max_depth=8, min_samples_leaf=10,
+        max_features=0.5, random_state=42, n_jobs=-1,
+    )
+    rf_total.fit(X_train_total, train["total"])
+    rf_pred_total = rf_total.predict(X_val_total)
+
+    rf_margin = RandomForestRegressor(
+        n_estimators=300, max_depth=8, min_samples_leaf=10,
+        max_features=0.5, random_state=42, n_jobs=-1,
+    )
+    rf_margin.fit(X_train_margin, train["margin"])
+    rf_pred_margin = rf_margin.predict(X_val_margin)
+
+    # --- Ensemble: 3-model per-target weights ---
+    # Total: XGBoost still dominant, RF adds variance reduction
+    # Margin: Ridge regularization helps with noise, RF adds diversity
+    pred_total = 0.60 * xgb_pred_total + 0.20 * ridge_pred_total + 0.20 * rf_pred_total
+    pred_margin = 0.45 * xgb_pred_margin + 0.35 * ridge_pred_margin + 0.20 * rf_pred_margin
 
     # Derive individual scores from total and margin
     val["pred_home_score"] = (pred_total + pred_margin) / 2.0
