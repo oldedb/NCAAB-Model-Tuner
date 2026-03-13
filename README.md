@@ -16,15 +16,17 @@ The auto-research loop (`scripts/run_loop.sh`) ties them together:
 - If MAE (Mean Absolute Error) improves → keep the change
 - If not → revert and try again
 
-After 50 experiments, the model improved from **8.61 MAE** (baseline) to **8.44 MAE** (current best).
+After 225+ experiments across 9 strategies, the model improved from **8.61 MAE** (baseline) to **7.76 MAE** (current best).
 
 ## Current Model
 
-The tuned model uses a 70/30 XGBoost + Ridge regression ensemble that:
+The tuned model uses a 3-model ensemble (XGBoost + Ridge + Random Forest) that:
 - Predicts game **total** and **margin** separately, then derives individual scores
-- Uses 21 base features and 21 engineered features per game
+- Uses ~115 features: 21 basic, 46 enhanced box score, 35 engineered matchup, and 3 margin interactions
 - Applies Bayesian shrinkage to handle teams with few games played
-- Features include matchup differentials, pace proxies, momentum trends, and rest advantage
+- Uses a K-fold stacking meta-learner for margin prediction with game-context features
+- Features include efficiency ratings, Four Factors, pace, power ratings (SRS/Elo), matchup quality proxies, and pace-adjusted expected scores
+- Enhanced data from College Basketball Data API (box scores, SRS, Elo)
 
 ## Predict Upcoming Games
 
@@ -48,7 +50,8 @@ The script fetches the schedule from ESPN, computes current team stats from this
 ### Requirements
 
 - Python 3.10+
-- ~19,000 historical game results (included in `data/raw_games.csv` after first data pull)
+- ~28,600 historical game results with enhanced box scores (in `data/enhanced_games.csv`)
+- College Basketball Data API key (free, set in `.env` as `CBBDATA_API_KEY`)
 
 ### Install
 
@@ -99,17 +102,20 @@ python predict_tomorrow.py
 ├── predict_tomorrow.py     # Predict upcoming games from ESPN schedule
 ├── program.md              # Strategy guidance for the AI agent
 ├── requirements.txt        # Python dependencies
+├── TESTING_IDEAS.md        # Strategy blocks with results for steering tuning runs
+├── data/
+│   ├── raw_games.csv       # ESPN game results (gitignored)
+│   └── enhanced_games.csv  # Enhanced box scores from CBBData API (gitignored)
 ├── scripts/
 │   ├── pull_data.py        # ESPN data acquisition
+│   ├── pull_enhanced_data.py # CBBData API enhanced data pull
 │   └── run_loop.sh         # Auto-research loop runner
-├── data/
-│   └── raw_games.csv       # Historical game results (gitignored)
 └── logs/                   # Experiment logs and snapshots (gitignored)
 ```
 
 ## Data Source
 
-All game data comes from ESPN's public scoreboard API (no API key required). Features are computed from raw box scores — season-to-date averages calculated before each game to prevent data leakage.
+Game schedules and scores from ESPN's public scoreboard API (no key required). Enhanced box scores, SRS, and Elo ratings from the [College Basketball Data API](https://api.collegebasketballdata.com/) (free API key). Features are computed as season-to-date averages calculated before each game to prevent data leakage.
 
 ## Inspired By
 
