@@ -1,10 +1,11 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment: Add defensive pressure features (steals, blocks) and ball movement (assists) for
-  both teams, plus differentials. These available-but-unused features capture defensive intensity
-  and offensive quality beyond shooting percentages.
-  Previous MAE: 7.7658
+Experiment: Add game-context features to margin meta-learner. Instead of stacking on
+  just 3 base model predictions, add srs_diff, pace_avg, abs_srs_diff, and elo_diff
+  as additional meta-learner inputs. This lets the meta-learner learn which base model
+  to trust depending on game context (e.g., mismatches vs close games, fast vs slow pace).
+  Previous MAE: 7.7574
 """
 
 import pandas as pd
@@ -13,6 +14,7 @@ from xgboost import XGBRegressor
 from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import KFold
 
 
 # Original basic features (always available)
@@ -334,11 +336,64 @@ def predict(train_df, val_df):
     rf_margin.fit(X_train_margin, train["margin"])
     rf_pred_margin = rf_margin.predict(X_val_margin)
 
-    # --- Ensemble: 3-model per-target weights ---
-    # Total: XGBoost still dominant, RF adds variance reduction
-    # Margin: Ridge regularization helps with noise, RF adds diversity
+    # --- Total: fixed ensemble weights (unchanged) ---
     pred_total = 0.60 * xgb_pred_total + 0.20 * ridge_pred_total + 0.20 * rf_pred_total
-    pred_margin = 0.45 * xgb_pred_margin + 0.35 * ridge_pred_margin + 0.20 * rf_pred_margin
+
+    # --- Margin: K-fold stacking meta-learner with game-context features ---
+    # Context features help the meta-learner learn when each base model is more reliable
+    CONTEXT_COLS = ["srs_diff", "pace_avg", "abs_srs_diff", "elo_diff"]
+    context_train = train[CONTEXT_COLS].astype(float).fillna(0).values
+    context_val = val[CONTEXT_COLS].astype(float).fillna(0).values
+
+    # Generate out-of-fold margin predictions to train a meta-learner
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    oof_margin_preds = np.zeros((len(train), 3))  # 3 base models
+
+    for fold_idx, (tr_idx, oof_idx) in enumerate(kf.split(X_train_margin)):
+        X_tr_fold = X_train_margin.iloc[tr_idx]
+        y_tr_fold = train["margin"].iloc[tr_idx]
+        X_oof_fold = X_train_margin.iloc[oof_idx]
+
+        # XGBoost fold
+        xgb_m_fold = XGBRegressor(
+            n_estimators=400, max_depth=4, learning_rate=0.04,
+            subsample=0.8, colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=12.0,
+            random_state=42, verbosity=0,
+        )
+        xgb_m_fold.fit(X_tr_fold, y_tr_fold)
+        oof_margin_preds[oof_idx, 0] = xgb_m_fold.predict(X_oof_fold)
+
+        # Ridge fold (needs scaling)
+        sc_fold = StandardScaler()
+        X_tr_sc = sc_fold.fit_transform(X_tr_fold)
+        X_oof_sc = sc_fold.transform(X_oof_fold)
+        ridge_m_fold = Ridge(alpha=50.0)
+        ridge_m_fold.fit(X_tr_sc, y_tr_fold)
+        oof_margin_preds[oof_idx, 1] = ridge_m_fold.predict(X_oof_sc)
+
+        # Random Forest fold
+        rf_m_fold = RandomForestRegressor(
+            n_estimators=300, max_depth=8, min_samples_leaf=15,
+            max_features=0.5, random_state=42, n_jobs=-1,
+        )
+        rf_m_fold.fit(X_tr_fold, y_tr_fold)
+        oof_margin_preds[oof_idx, 2] = rf_m_fold.predict(X_oof_fold)
+
+    # Combine base predictions with game-context features for meta-learner
+    meta_scaler = StandardScaler()
+    oof_meta_features = np.column_stack([oof_margin_preds, context_train])
+    oof_meta_features_sc = meta_scaler.fit_transform(oof_meta_features)
+
+    # Train meta-learner on out-of-fold predictions + context
+    meta_learner = Ridge(alpha=1.0)
+    meta_learner.fit(oof_meta_features_sc, train["margin"].values)
+
+    # Generate val predictions from full-data base models and stack with context
+    val_margin_stack = np.column_stack([
+        xgb_pred_margin, ridge_pred_margin, rf_pred_margin, context_val
+    ])
+    val_margin_stack_sc = meta_scaler.transform(val_margin_stack)
+    pred_margin = meta_learner.predict(val_margin_stack_sc)
 
     # Derive individual scores from total and margin
     val["pred_home_score"] = (pred_total + pred_margin) / 2.0

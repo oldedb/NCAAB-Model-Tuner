@@ -107,33 +107,31 @@ Also: `neutral_site` (bool), `home_id`, `away_id`
 - Consider blending team stats with league averages based on games_played
 - SRS and Elo can help anchor early-season predictions
 
-## Current Focus: Conference / Strength of Schedule Adjustment
+## Current Focus: Stacking / Meta-Model
 
-The model is at MAE 7.7764. SRS already adjusts for strength of schedule, but explicit conference-level features could help the model understand that a 20-5 team from the Big 12 is very different from a 20-5 team from a mid-major. Conference play also tends to be lower-scoring and more competitive than non-conference.
+The model is at MAE 7.7592. The current ensemble uses fixed weights (60/20/20 for total, 45/35/20 for margin). A meta-learner trained on base model predictions could discover better blending — perhaps XGBoost is more reliable for certain game types while Ridge is better for others.
 
 **What we know:**
-- SRS_diff is already the #1 feature (11.2% importance) and encodes SoS implicitly
-- But the model has no explicit conference-level information
-- Conference games behave differently than non-conference (tighter, lower-scoring)
-- Teams from strong conferences have inflated loss counts but are actually better
-- home_id and away_id are available but not currently used as features
+- Fixed ensemble weights: 60% XGB + 20% Ridge + 20% RF (total), 45% XGB + 35% Ridge + 20% RF (margin)
+- The optimal blend may vary by game context (e.g., close matchups vs mismatches)
+- Conference/SoS features just provided the biggest improvement (+0.0172)
+- Feature count is now ~115 across all lists
 
 **Priority experiments (try these first):**
-- Try computing average SRS by conference (from training data), then add home_conf_avg_srs and away_conf_avg_srs as features
-- Try adding "SRS above conference average" features: home_srs - home_conf_avg_srs
-- Try adding conference strength tier features (top 7 conferences vs mid-majors vs low-majors)
-- Try computing average Elo by conference and adding conference Elo gap features
-- Try adding a conference_game flag (are both teams from the same conference?)
-- Try adding opponent strength features: average SRS of opponents played so far
-- Try adding win_pct adjusted for SoS: win_pct * (team_srs / league_avg_srs)
-- Try adding conference-adjusted scoring: ppg relative to conference average ppg
+- Try a simple stacking approach: use XGBoost, Ridge, and RF predictions as features for a linear meta-learner (Ridge or LinearRegression) trained on a holdout fold from training data
+- Try K-fold stacking: split training into K folds, generate out-of-fold predictions from each base model, then train a meta-learner on those
+- Try adding game-context features to the meta-learner alongside base predictions (e.g., srs_diff, pace_avg, abs_srs_diff)
+- Try a simple averaging approach: equal weights (33/33/33) instead of hand-tuned weights
+- Try optimizing weights via scipy.optimize.minimize on the training set
+- Try using ElasticNet as the meta-learner (combines L1 and L2 regularization)
+- Try stacking only for margin prediction (where noise is highest) and keep fixed weights for total
 
 **Rules for this run:**
-- Keep the 3-model ensemble architecture
-- You may add new conference/SoS engineered features in _add_engineered()
-- You may compute conference averages from the training data within predict()
-- You may add new feature names to ALL_FEATURES, MARGIN_FEATURES, or create new lists
-- Do NOT use home_id or away_id directly as model features (leakage risk)
+- Keep all three base models (XGBoost, Ridge, Random Forest)
+- You may change how base model predictions are combined
+- You may add a meta-learner / stacking layer
+- You may use cross-validation within the training set for stacking
+- Do NOT change base model hyperparameters or feature lists
 - Keep the predict() function signature the same
 
 ## Things to Avoid
