@@ -1,11 +1,12 @@
 """
 Prediction Model — The ONE file the AI agent modifies.
 
-Experiment: Add game-context features to margin meta-learner. Instead of stacking on
-  just 3 base model predictions, add srs_diff, pace_avg, abs_srs_diff, and elo_diff
-  as additional meta-learner inputs. This lets the meta-learner learn which base model
-  to trust depending on game context (e.g., mismatches vs close games, fast vs slow pace).
-  Previous MAE: 7.7574
+Experiment: Add defensive efficiency trends and Elo-SRS agreement to margin model.
+  - home/away_def_eff_trend: last5_def_rating - avg_def_rating (teams getting better/worse
+    defensively recently — we already have offensive trends but not defensive)
+  - elo_srs_agree: abs(normalized_elo_rank - normalized_srs_rank) — when Elo and SRS
+    disagree on team quality, predictions are less certain
+  Previous MAE: 7.7525
 """
 
 import pandas as pd
@@ -130,6 +131,16 @@ MARGIN_INTERACTIONS = [
     "srs_x_winpct",
     "elo_x_margin",
     "srs_x_elo",
+    "srs_x_pace",
+    "srs_diff_sq",
+    "combined_power_diff",
+    "elo_x_home",
+    "srs_x_home",
+    "min_srs",
+    "max_srs",
+    "home_def_eff_trend",
+    "away_def_eff_trend",
+    "elo_srs_agree",
 ]
 
 ALL_FEATURES = BASIC_FEATURES + ENHANCED_FEATURES + ENGINEERED
@@ -246,6 +257,32 @@ def _add_engineered(df):
     df["srs_x_winpct"] = df["srs_diff"] * df["win_pct_diff"]
     df["elo_x_margin"] = df["elo_diff"] * df["margin_diff"]
     df["srs_x_elo"] = df["srs_diff"] * df["elo_diff"]
+
+    # Power rating × pace: SRS advantage amplified by game speed
+    df["srs_x_pace"] = df["srs_diff"] * df["pace_avg"]
+    # Squared SRS diff: non-linear effect for large mismatches
+    df["srs_diff_sq"] = df["srs_diff"] ** 2 * np.sign(df["srs_diff"])
+    # Combined power: blend SRS and Elo into single differential
+    df["combined_power_diff"] = (df["home_srs"] + df["home_elo"] / 400.0) - (df["away_srs"] + df["away_elo"] / 400.0)
+
+    # Elo × home court: power advantage amplified at home, zero at neutral
+    home_flag = (1 - df["neutral_site"].astype(float))
+    df["elo_x_home"] = df["elo_diff"] * home_flag
+    df["srs_x_home"] = df["srs_diff"] * home_flag
+
+    # Game quality: weaker/stronger team's SRS as proxy for game caliber
+    df["min_srs"] = np.minimum(df["home_srs"], df["away_srs"])
+    df["max_srs"] = np.maximum(df["home_srs"], df["away_srs"])
+
+    # Defensive efficiency trends (complement to existing offensive trends)
+    df["home_def_eff_trend"] = df["home_last5_def_rating"] - df["home_avg_def_rating"]
+    df["away_def_eff_trend"] = df["away_last5_def_rating"] - df["away_avg_def_rating"]
+
+    # Elo-SRS agreement: when these two power ratings disagree, signal is noisier
+    # Normalize both to similar scale, then measure disagreement
+    elo_norm = (df["home_elo"] - df["away_elo"]) / 200.0  # Elo diff normalized
+    srs_norm = (df["home_srs"] - df["away_srs"]) / 10.0   # SRS diff normalized
+    df["elo_srs_agree"] = (elo_norm - srs_norm).abs()
 
     return df
 

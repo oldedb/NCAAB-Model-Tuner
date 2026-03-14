@@ -257,7 +257,7 @@ def main():
     data_type = "enhanced box scores" if use_enhanced else "basic scores"
     print(f"{'=' * 60}")
     print(f"  Model: XGBoost + Ridge + RF ensemble | Data: {data_type}")
-    print(f"  Historical MAE: 7.76 pts")
+    print(f"  Historical MAE: 7.75 pts")
     print(f"{'=' * 60}")
 
 

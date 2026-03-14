@@ -16,7 +16,7 @@ The auto-research loop (`scripts/run_loop.sh`) ties them together:
 - If MAE (Mean Absolute Error) improves → keep the change
 - If not → revert and try again
 
-After 225+ experiments across 9 strategies, the model improved from **8.61 MAE** (baseline) to **7.76 MAE** (current best).
+After 275+ experiments across 11 strategies, the model improved from **8.61 MAE** (baseline) to **7.75 MAE** (current best).
 
 ## Current Model
 

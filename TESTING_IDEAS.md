@@ -21,8 +21,11 @@ This restores `program.md` to the version before any testing strategy was applie
 | Fix Total Prediction | 25 | 0 | 7.7764 | 7.7764 | 0 |
 | **Conference/SoS Adjustment** | **25** | **5** | **7.7764** | **7.7592** | **-0.0172** |
 | Stacking / Meta-Model | 25 | 2 | 7.7592 | 7.7573 | -0.0019 |
+| Shooting Matchup Deep Dive | 25 | 0 | 7.7573 | 7.7573 | 0 |
+| Lean Into Power Ratings | 25 | 4 | 7.7573 | 7.7512 | -0.0061 |
+| Reduce Overfitting | 25 | 0 | 7.7512 | 7.7512 | 0 |
 
-**Total: 175 experiments, 11 kept, MAE 7.7787 → 7.7573**
+**Total: 250 experiments, 15 kept, MAE 7.7787 → 7.7512**
 
 Best strategy: Conference/SoS Adjustment (5 kept, -0.0172 MAE)
 
@@ -48,7 +51,7 @@ Copy any of these blocks into `program.md` under "Current Focus" to steer the ne
 
 > Only change ONE hyperparameter per experiment. Do not rewrite the model architecture. Try: XGBoost max_depth 3 vs 4 vs 5, learning_rate 0.04 vs 0.06 vs 0.08, n_estimators 150 vs 200 vs 300.
 
-## Lean Into Power Ratings (not yet tested)
+## Lean Into Power Ratings (tested — MAE -0.0061)
 
 > Elo and SRS are carrying 36% of the model's importance. Build more features from them: Elo momentum (change over last 5 games), SRS rank differential, conference-adjusted SRS. Do NOT remove existing power rating features.
 
@@ -60,11 +63,11 @@ Copy any of these blocks into `program.md` under "Current Focus" to steer the ne
 
 > Add conference strength features. Average SRS by conference, then compute how far above/below conference average each team sits. Conference tournament games may behave differently than regular season — explore whether conference_game flag helps.
 
-## Reduce Overfitting (not yet tested)
+## Reduce Overfitting (tested — no improvement)
 
 > The model may be overfitting with 95 features and max_depth=4. Try: reduce max_depth to 3, increase reg_lambda to 15 or 20, reduce colsample_bytree to 0.5, or use cross-validation within the training set to select hyperparameters.
 
-## Shooting Matchup Deep Dive (not yet tested)
+## Shooting Matchup Deep Dive (tested — no improvement)
 
 > Explore whether 3-point reliance matchups matter. A team that shoots 40% of their shots from 3 against a team with poor perimeter defense (high opp_efg_pct) should score more. Try interaction features: home_fg3_rate * away_opp_efg_pct.
 

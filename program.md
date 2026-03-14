@@ -107,32 +107,38 @@ Also: `neutral_site` (bool), `home_id`, `away_id`
 - Consider blending team stats with league averages based on games_played
 - SRS and Elo can help anchor early-season predictions
 
-## Current Focus: Stacking / Meta-Model
+## Current Focus: Reduce Overfitting
 
-The model is at MAE 7.7592. The current ensemble uses fixed weights (60/20/20 for total, 45/35/20 for margin). A meta-learner trained on base model predictions could discover better blending — perhaps XGBoost is more reliable for certain game types while Ridge is better for others.
+The model is at MAE 7.7512 with ~115+ features and max_depth=4. With diminishing returns from feature engineering, the remaining gains may come from better regularization and reducing model complexity.
 
 **What we know:**
-- Fixed ensemble weights: 60% XGB + 20% Ridge + 20% RF (total), 45% XGB + 35% Ridge + 20% RF (margin)
-- The optimal blend may vary by game context (e.g., close matchups vs mismatches)
-- Conference/SoS features just provided the biggest improvement (+0.0172)
-- Feature count is now ~115 across all lists
+- XGBoost total: n_estimators=200, max_depth=4, lr=0.06, reg_lambda=10.0
+- XGBoost margin: n_estimators=400, max_depth=4, lr=0.04, reg_lambda=12.0
+- Ridge alpha=50.0 for both total and margin
+- RF: n_estimators=300, max_depth=8, min_samples_leaf=15, max_features=0.5
+- The model has 115+ features — some may be adding noise rather than signal
+- Feature engineering strategies have been exhausted with diminishing returns
 
 **Priority experiments (try these first):**
-- Try a simple stacking approach: use XGBoost, Ridge, and RF predictions as features for a linear meta-learner (Ridge or LinearRegression) trained on a holdout fold from training data
-- Try K-fold stacking: split training into K folds, generate out-of-fold predictions from each base model, then train a meta-learner on those
-- Try adding game-context features to the meta-learner alongside base predictions (e.g., srs_diff, pace_avg, abs_srs_diff)
-- Try a simple averaging approach: equal weights (33/33/33) instead of hand-tuned weights
-- Try optimizing weights via scipy.optimize.minimize on the training set
-- Try using ElasticNet as the meta-learner (combines L1 and L2 regularization)
-- Try stacking only for margin prediction (where noise is highest) and keep fixed weights for total
+- Try reducing XGBoost max_depth from 4 to 3 (simpler trees, less overfitting)
+- Try increasing reg_lambda to 15 or 20 (stronger L2 regularization)
+- Try reducing colsample_bytree to 0.5 or 0.4 (feature subsampling per tree)
+- Try reducing subsample to 0.7 or 0.8 (row subsampling per tree)
+- Try increasing min_child_weight to 5 or 10 (require more data per leaf)
+- Try increasing Ridge alpha to 75 or 100 (stronger regularization)
+- Try reducing RF max_depth from 8 to 6 (simpler trees)
+- Try increasing RF min_samples_leaf from 15 to 25 (larger leaf sizes)
+- Try adding early_stopping_rounds to XGBoost (stop before overfitting)
+- Try gamma parameter (minimum loss reduction for split) at 0.1 or 0.5
 
 **Rules for this run:**
-- Keep all three base models (XGBoost, Ridge, Random Forest)
-- You may change how base model predictions are combined
-- You may add a meta-learner / stacking layer
-- You may use cross-validation within the training set for stacking
-- Do NOT change base model hyperparameters or feature lists
+- You may change hyperparameters for XGBoost, Ridge, and Random Forest
+- You may change meta-learner hyperparameters
+- Do NOT add or remove features
+- Do NOT change the model architecture (keep 3-model ensemble + meta-learner)
+- Do NOT change the feature list
 - Keep the predict() function signature the same
+- Change only ONE hyperparameter per experiment
 
 ## Things to Avoid
 
